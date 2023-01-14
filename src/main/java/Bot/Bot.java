@@ -8,14 +8,20 @@ import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.*;
+import net.dv8tion.jda.api.entities.emoji.Emoji;
+import net.dv8tion.jda.api.events.Event;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
+import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import net.dv8tion.jda.api.managers.AudioManager;
 import net.dv8tion.jda.internal.audio.VoiceCode;
 import org.jetbrains.annotations.NotNull;
@@ -38,7 +44,7 @@ public class Bot extends ListenerAdapter {
     private synchronized MusicManager getMusicManager(Guild guild) {
         long guildId = Long.parseLong(guild.getId());
         MusicManager musicManager = this.musicManagers.get(guildId);
-        if(musicManager == null) {
+        if (musicManager == null) {
             musicManager = new MusicManager(this.audioPlayerManager);
             musicManagers.put(guildId, musicManager);
         }
@@ -46,14 +52,23 @@ public class Bot extends ListenerAdapter {
         return musicManager;
     }
 
-    private void loadAndPlay(TextChannel textChannel, String url, VoiceChannel voiceChannel) {
+    private void loadAndPlay(TextChannel textChannel, String url, VoiceChannel voiceChannel, SlashCommandInteractionEvent event) {
         MusicManager musicManager = getMusicManager(textChannel.getGuild());
 
         audioPlayerManager.loadItem(url, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack audioTrack) {
-                textChannel.sendMessage("Queueing " + audioTrack.getInfo().title).queue();
+                if (musicManager.audioPlayer.getPlayingTrack() == null) {
+                    event.getHook().sendMessageEmbeds(new EmbedBuilder()
+                            .setTitle("Playing " + audioTrack.getInfo().title)
+                            .build()).queue();
+                } else {
+                    event.getHook().sendMessageEmbeds(new EmbedBuilder()
+                            .setTitle("Queued  " + musicManager.audioPlayer.getPlayingTrack().getInfo().title)
+                            .build()).queue();
+                }
                 play(textChannel.getGuild(), musicManager, audioTrack, voiceChannel);
+
             }
 
             @Override
@@ -89,8 +104,22 @@ public class Bot extends ListenerAdapter {
     private void prev(MusicManager musicManager) {
         musicManager.scheduler.prevTrack();
     }
+
+    private void stop(MusicManager musicManager, AudioManager audioManager) {
+        musicManager.scheduler.stop();
+        audioManager.closeAudioConnection();
+    }
+
+    private void volumeUp(MusicManager musicManager) {
+        musicManager.scheduler.volumeUp();
+    }
+
+    private void volumeDown(MusicManager musicManager) {
+        musicManager.scheduler.volumeDown();
+    }
+
     private static void connectToVoiceChannel(AudioManager audioManager, VoiceChannel voiceChannel) {
-        if(!audioManager.isConnected()) {
+        if (!audioManager.isConnected()) {
             audioManager.openAudioConnection(voiceChannel);
         }
     }
@@ -107,33 +136,79 @@ public class Bot extends ListenerAdapter {
                 Commands.slash("pause", "pause/play the song"),
                 Commands.slash("next", "play the next song in queue"),
                 Commands.slash("prev", "play the previous song in queue"),
-                Commands.slash("queue-list", "get all of the songs in queue")
+                Commands.slash("queue-list", "get all of the songs in queue"),
+                Commands.slash("controls", "display buttons to control the player")
         ).queue();
     }
 
-
+    @Override
+    public void onButtonInteraction(@NotNull ButtonInteractionEvent event) {
+        MusicManager musicManager = getMusicManager(event.getGuild());
+        switch (event.getComponentId()) {
+            case "pause":
+                pause(musicManager);
+                event.editButton(Button.primary("resume", "Resume")).queue();
+                break;
+            case "resume":
+                pause(musicManager);
+                event.editButton(Button.primary("pause", "Pause")).queue();
+                break;
+            case "next":
+                next(musicManager);
+                event.editMessageEmbeds(new EmbedBuilder().
+                        setTitle(musicManager.audioPlayer.getPlayingTrack().getInfo().title)
+                        .addField("Artist", musicManager.audioPlayer.getPlayingTrack().getInfo().author, true)
+                        .addField("Duration", musicManager.audioPlayer.getPlayingTrack().getInfo().length / 1000 + " seconds", true)
+                        .build()).queue();
+//                event.reply("playing next").setEphemeral(true).queue();
+                break;
+            case "prev":
+                prev(musicManager);
+                event.editMessageEmbeds(new EmbedBuilder().
+                        setTitle(musicManager.audioPlayer.getPlayingTrack().getInfo().title)
+                        .addField("Artist", musicManager.audioPlayer.getPlayingTrack().getInfo().author, true)
+                        .addField("Duration", musicManager.audioPlayer.getPlayingTrack().getInfo().length / 1000 + " seconds", true)
+                        .build()).queue();
+//                event.reply("playing previous").setEphemeral(true).queue();
+                break;
+            case "volume-up":
+                volumeUp(musicManager);
+                event.editButton(Button.primary("volume-up", "Up").withEmoji(Emoji.fromUnicode("U+1F50A"))).queue();
+                break;
+            case "volume-down":
+                volumeDown(musicManager);
+                event.editButton(Button.primary("volume-down", "Down").withEmoji(Emoji.fromUnicode("U+1F508"))).queue();
+                break;
+            case "exit":
+                stop(musicManager, event.getGuild().getAudioManager());
+                event.getMessage().delete().queue();
+                break;
+        }
+    }
 
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event) {
+        MusicManager musicManager = getMusicManager(event.getGuild());
         event.deferReply().queue();
         switch (event.getName()) {
             case "play":
                 VoiceChannel vc = null;
-                for(VoiceChannel voiceChannel: event.getGuild().getVoiceChannels()) {
-                    if(voiceChannel.getMembers().contains(event.getMember())) {
+                for (VoiceChannel voiceChannel : event.getGuild().getVoiceChannels()) {
+                    if (voiceChannel.getMembers().contains(event.getMember())) {
                         vc = voiceChannel;
                         break;
                     }
                 }
-                if(vc == null) {
+                if (vc == null) {
                     event.getHook().sendMessage("Must be in a voice channel!").queue();
                     break;
-                };
-
+                }
+                ;
                 System.out.println(event.getOption("url").getAsString());
-                event.getHook().sendMessage("Playing").queue();
+//                event.getHook().sendMessage("Playing").queue();
                 loadAndPlay(event.getChannel().asTextChannel(), event.getOption("url").getAsString(),
-                        vc);
+                        vc, event);
+
                 break;
             case "pause":
                 pause(getMusicManager(event.getGuild()));
@@ -147,6 +222,32 @@ public class Bot extends ListenerAdapter {
                 prev(getMusicManager(event.getGuild()));
                 event.getHook().sendMessage("playing prev").queue();
                 break;
+            case "controls":
+                if (musicManager.audioPlayer.getPlayingTrack() == null) {
+                    event.getHook().sendMessage("Song must be playing to display controls").queue();
+                    break;
+                }
+                event.getHook().sendMessageEmbeds(new EmbedBuilder()
+                                .setTitle(musicManager.audioPlayer.getPlayingTrack().getInfo().title,
+                                        musicManager.audioPlayer.getPlayingTrack().getInfo().uri)
+                                .addField("Artist",
+                                        musicManager.audioPlayer.getPlayingTrack().getInfo().author, true)
+                                .addField("Length", musicManager.audioPlayer.getPlayingTrack().getInfo().length / 1000 + " seconds", true)
+                                .build()).addActionRow(
+
+                                Button.primary("prev", "Prev"),
+                                Button.primary("pause", "Pause"),
+                                Button.primary("next", "Next")
+                        )
+                        .addActionRow(
+                                Button.primary("volume-down", "Down").withEmoji(Emoji.fromUnicode("U+1F508")),
+                                Button.primary("volume-up", "Up").withEmoji(Emoji.fromUnicode("U+1F50A")),
+                                Button.danger("exit", "Exit")
+                        ).queue();
+//                event.getHook().sendMessage("Song Controls:").addActionRow(
+//
+//
+//                ).queue();
         }
     }
 }
