@@ -52,7 +52,7 @@ public class Scheduler implements AudioEventListener {
 
             for (Emitter emitter : emitterList) {
 //                System.out.println("Sending emits");
-                emitter.trackEnded();
+                emitter.trackEnded(this.player);
                 if(index >= list.size()) emitter.queueEnded(this.player);
 //                if (queue.isEmpty()) emitter.queueEnded(this.player);
             }

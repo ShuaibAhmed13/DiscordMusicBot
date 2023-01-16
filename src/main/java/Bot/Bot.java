@@ -37,11 +37,14 @@ public class Bot extends ListenerAdapter implements Emitter {
     private final AudioPlayerManager audioPlayerManager;
     private final Map<Long, MusicManager> musicManagers;
     private final Map<AudioPlayer, MessageChannel> audioPlayers;
+
+    private final Map<MessageChannel, Message> controllerMessages;
     private MessageCreateBuilder currentControls;
     private Bot() {
         this.audioPlayerManager = new DefaultAudioPlayerManager();
         this.musicManagers = new HashMap<>();
         this.audioPlayers = new HashMap<>();
+        this.controllerMessages = new HashMap<>();
         AudioSourceManagers.registerRemoteSources(audioPlayerManager);
     }
 
@@ -67,6 +70,10 @@ public class Bot extends ListenerAdapter implements Emitter {
         audioPlayerManager.loadItem(url, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack audioTrack) {
+//                MessageChannel messageChannel = getMessageChannel(musicManager.audioPlayer);
+//                if(messageChannel != null && controllerMessages.get(messageChannel) != null)
+//                    controllerMessages.get(getMessageChannel(musicManager.audioPlayer)).delete().queue();
+//                controllerMessages.get(musicManager).delete();
                 if (musicManager.audioPlayer.getPlayingTrack() == null) {
                     event.getHook().sendMessageEmbeds(new EmbedBuilder()
                             .setTitle("Playing " + audioTrack.getInfo().title)
@@ -75,7 +82,19 @@ public class Bot extends ListenerAdapter implements Emitter {
                     event.getHook().sendMessageEmbeds(new EmbedBuilder()
                             .setTitle("Queued  " + audioTrack.getInfo().title)
                             .build()).queue();
+                    event.getMessageChannel().sendMessage(buildControls(audioTrack.getInfo())).queue((message -> {
+//                        if(controllerMessages.get(event.getMessageChannel()) != null) {
+//                            controllerMessages.get(event.getMessageChannel()).delete().queue();
+//                            controllerMessages.put(event.getMessageChannel(), message);
+//                        }
+                        controllerMessages.put(event.getMessageChannel(), message);
+//                        if(audioPlayers.get(musicManager.audioPlayer) != event.getMessageChannel()) {
+//                            audioPlayers.put(musicManager.audioPlayer, event.getMessageChannel());
+//                            controllerMessages.put(event.getMessageChannel(), message);
+//                        }
+                    }));
                 }
+
                 play(textChannel.getGuild(), musicManager, audioTrack, voiceChannel);
 
             }
@@ -222,12 +241,29 @@ public class Bot extends ListenerAdapter implements Emitter {
                     event.getHook().sendMessage("Must be in a voice channel!").queue();
                     break;
                 }
-                ;
-                System.out.println(event.getOption("url").getAsString());
-//                event.getHook().sendMessage("Playing").queue();
+
+                if(this.audioPlayers.get(musicManager.audioPlayer) != null) {
+                    if(this.controllerMessages.get(this.audioPlayers.get(musicManager.audioPlayer)) != null) {
+                        this.controllerMessages.get(this.audioPlayers.get(musicManager.audioPlayer)).delete().queue();
+                    }
+                    this.controllerMessages.remove(this.audioPlayers.get(musicManager.audioPlayer));
+
+                    this.audioPlayers.remove(musicManager.audioPlayer);
+                }
                 this.audioPlayers.put(musicManager.audioPlayer, event.getMessageChannel());
                 loadAndPlay(event.getChannel().asTextChannel(), event.getOption("url").getAsString(),
                         vc, event);
+                System.out.println(event.getOption("url").getAsString());
+//                event.getHook().sendMessage("Playing").queue();
+//                if(this.audioPlayers.get(musicManager.audioPlayer) != null) {
+//                    this.controllerMessages.get(this.audioPlayers.get(musicManager.audioPlayer)).delete().queue();
+//                    this.controllerMessages.remove(this.audioPlayers.get(musicManager.audioPlayer));
+//                    event.getHook().sendMessage(buildControls(musicManager.audioPlayer.getPlayingTrack().getInfo())).queue((message -> {
+//                        this.controllerMessages.put(event.getMessageChannel(), message);
+//                    }));
+//                }
+
+
 
                 break;
             case "pause":
@@ -336,12 +372,17 @@ public class Bot extends ListenerAdapter implements Emitter {
     public void trackStarted(AudioTrackInfo info, AudioPlayer audioPlayer) {
         MessageChannel messageChannel = this.audioPlayers.get(audioPlayer);
         if(messageChannel == null) return;
-        messageChannel.sendMessage(buildControls(info)).queue();
+        messageChannel.sendMessage(buildControls(info)).queue((message -> {
+            this.controllerMessages.put(audioPlayers.get(audioPlayer), message);
+//            System.out.println(message.getId());
+        }));
 //        this.messageChannel.sendMessage(buildControls(info)).queue();
     }
 
     @Override
-    public void trackEnded() {
+    public void trackEnded(AudioPlayer audioPlayer) {
+        if(audioPlayers.get(audioPlayer) != null && controllerMessages.get(audioPlayers.get(audioPlayer)) != null)
+            this.controllerMessages.get(audioPlayers.get(audioPlayer)).delete().queue();
     }
 
     @Override
