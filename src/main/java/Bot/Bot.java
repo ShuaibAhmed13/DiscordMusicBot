@@ -17,6 +17,7 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.*;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
+import net.dv8tion.jda.api.events.Event;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -74,15 +75,24 @@ public class Bot extends ListenerAdapter implements Emitter {
 //                if(messageChannel != null && controllerMessages.get(messageChannel) != null)
 //                    controllerMessages.get(getMessageChannel(musicManager.audioPlayer)).delete().queue();
 //                controllerMessages.get(musicManager).delete();
+                Long duration = audioTrack.getDuration() / 1000;
+                String durationValue = duration >= 3600 ? Util.getDurationHMS(duration) : Util.getDurationMS(duration);
                 if (musicManager.audioPlayer.getPlayingTrack() == null) {
                     event.getHook().sendMessageEmbeds(new EmbedBuilder()
-                            .setTitle("Playing " + audioTrack.getInfo().title)
+                            .setTitle("Playing " + audioTrack.getInfo().title, audioTrack.getInfo().uri)
+                                    .addField("Requested by", event.getMember().getAsMention(), true)
+                                    .addField("Artist", audioTrack.getInfo().author, true)
+                                    .addField("Duration", durationValue, true)
                             .build()).queue();
                 } else {
                     event.getHook().sendMessageEmbeds(new EmbedBuilder()
-                            .setTitle("Queued  " + audioTrack.getInfo().title)
+                            .setTitle("Queued  " + audioTrack.getInfo().title, audioTrack.getInfo().uri)
+                            .addField("Requested by", event.getMember().getAsMention(), true)
+                            .addField("Artist", audioTrack.getInfo().author, true)
+                            .addField("Duration", durationValue, true)
                             .build()).queue();
-                    event.getMessageChannel().sendMessage(buildControls(audioTrack.getInfo())).queue((message -> {
+                    AudioTrack playingTrack = musicManager.audioPlayer.getPlayingTrack();
+                    event.getMessageChannel().sendMessage(buildControls(playingTrack.getInfo())).queue((message -> {
 //                        if(controllerMessages.get(event.getMessageChannel()) != null) {
 //                            controllerMessages.get(event.getMessageChannel()).delete().queue();
 //                            controllerMessages.put(event.getMessageChannel(), message);
@@ -165,7 +175,9 @@ public class Bot extends ListenerAdapter implements Emitter {
                 Commands.slash("next", "play the next song in queue"),
                 Commands.slash("prev", "play the previous song in queue"),
                 Commands.slash("queue-list", "get all of the songs in queue"),
-                Commands.slash("controls", "display buttons to control the player")
+                Commands.slash("recently-played", "show recently played songs")
+//                Commands.slash("clear", "Clear your queue and recently played")
+//                Commands.slash("controls", "display buttons to control the player")
         ).queue();
     }
 
@@ -283,6 +295,12 @@ public class Bot extends ListenerAdapter implements Emitter {
             case "queue-list":
                 showQueue(event);
                 break;
+            case "recently-played":
+                showRecentlyPlayed(event);
+                break;
+            case "clear":
+                clearQueue(event);
+                break;
 //                event.getHook().sendMessage(getMusicManager(event.getGuild()).scheduler.getQueue().toString()).queue();
 //                if (musicManager.audioPlayer.getPlayingTrack() == null) {
 //                    event.getHook().sendMessage("Song must be playing to display controls").queue();
@@ -335,12 +353,13 @@ public class Bot extends ListenerAdapter implements Emitter {
     }
 
     private MessageCreateData buildControls(AudioTrackInfo info) {
-
+        Long duration = info.length/1000;
+        String durationValue = duration >= 3600 ? Util.getDurationHMS(duration) : Util.getDurationMS(duration);
         return MessageCreateBuilder.from(MessageCreateData.fromEmbeds(
                         new EmbedBuilder()
                                 .setTitle(info.title, info.uri)
                                 .addField("Artist", info.author, true)
-                                .addField("Duration", info.length/1000 + " seconds", true)
+                                .addField("Duration", durationValue, true)
                                 .build())).addActionRow(
                         Button.primary("prev", "Prev"),
                         Button.primary("pause", "Pause"),
@@ -355,18 +374,56 @@ public class Bot extends ListenerAdapter implements Emitter {
 
     public void showQueue(SlashCommandInteractionEvent event) {
         Scheduler scheduler = getMusicManager(event.getGuild()).scheduler;
-        Iterator<AudioTrack> iterator = scheduler.getList().iterator();
+        if(scheduler.getList().isEmpty()) {
+            event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Queue empty!").build()).queue();
+            return;
+        }
+        List<AudioTrack> subList = scheduler.getList().subList(scheduler.getIndex() + 1, scheduler.getList().size());
+        Iterator<AudioTrack> iterator = subList.iterator();
         EmbedBuilder embedBuilder = new EmbedBuilder().setTitle("Queue");
         int val = 1;
         while (iterator.hasNext()) {
             AudioTrack audioTrack = iterator.next();
+            Long duration = audioTrack.getDuration() / 1000;
+            String durationValue = duration >= 3600 ? Util.getDurationHMS(duration) : Util.getDurationMS(duration);
             embedBuilder
                     .addField("#", val++  + "",true)
                     .addField("Title", audioTrack.getInfo().title, true)
-                    .addField("Duration", audioTrack.getInfo().length +"", true);
+                    .addField("Duration", durationValue, true);
 //                    .addBlankField(false);
         }
+        if(subList.isEmpty()) embedBuilder = new EmbedBuilder().setTitle("Queue empty!");
         event.getHook().sendMessageEmbeds(embedBuilder.build()).queue();
+    }
+
+    public void showRecentlyPlayed(SlashCommandInteractionEvent event) {
+        Scheduler scheduler = getMusicManager(event.getGuild()).scheduler;
+        System.out.println("LIST: " + scheduler.getList());
+        System.out.println("\n\n\n");
+        System.out.println("INDEX: " + scheduler.getIndex());
+        List<AudioTrack> subList = scheduler.getList().subList(0, scheduler.getIndex());
+        Collections.reverse(subList);
+        Iterator<AudioTrack> iterator = subList.iterator();
+        int val = subList.size();
+        EmbedBuilder embedBuilder = new EmbedBuilder().setTitle("Recently Played");
+
+        while(iterator.hasNext()) {
+            AudioTrack audioTrack = iterator.next();
+            Long duration = audioTrack.getDuration() / 1000;
+            String durationValue = duration >= 3600 ? Util.getDurationHMS(duration) : Util.getDurationMS(duration);
+            embedBuilder
+                    .addField("#", val-- + "", true)
+                    .addField("Title", audioTrack.getInfo().title, true)
+                    .addField("Duration", durationValue, true);
+        }
+        if(subList.isEmpty()) embedBuilder.setTitle("Nothing recently played!");
+        event.getHook().sendMessageEmbeds(embedBuilder.build()).queue();
+    }
+
+    public void clearQueue(SlashCommandInteractionEvent event) {
+        MusicManager musicManager = getMusicManager(event.getGuild());
+        musicManager.scheduler.clearQueue();
+        event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Cleared!").build()).queue();
     }
     @Override
     public void trackStarted(AudioTrackInfo info, AudioPlayer audioPlayer) {

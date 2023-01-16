@@ -14,7 +14,7 @@ public class Scheduler implements AudioEventListener {
 //    private final Queue<AudioTrack> queue;
 //    private final Stack<AudioTrack> prevStack;
 
-    private final List<AudioTrack> list;
+    private List<AudioTrack> list;
     private Integer index = 0;
 
     public Scheduler(AudioPlayer player) {
@@ -61,7 +61,7 @@ public class Scheduler implements AudioEventListener {
                 System.out.println("STOPPING...");
                 return;
             }
-            index++;
+            if(index + 1 <= list.size()) index++;
 
             System.out.println("Track index: " + index);
             System.out.println(((TrackEndEvent) audioEvent).endReason);
@@ -229,6 +229,14 @@ public class Scheduler implements AudioEventListener {
         return this.list;
     }
 
+    public Integer getIndex() {
+        return this.index;
+    }
+
+    public void clearQueue() {
+        this.list = new ArrayList<>();
+        this.index = 0;
+    }
 //    public Queue<AudioTrack> getQueue() {
 //        return this.queue;
 //    }
