@@ -95,9 +95,12 @@ public class Scheduler implements AudioEventListener {
     }
 
     public boolean playNext() {
-        index++;
+        if(index + 1 <= this.list.size()) index++;
         this.player.stopTrack();
+
+//        if(index + 1 <= this.list.size()) index++;
         if(index < this.list.size()) {
+
             this.player.startTrack(this.list.get(index).makeClone(), false);
             return true;
         }

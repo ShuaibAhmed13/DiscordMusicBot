@@ -29,8 +29,11 @@ import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageCreateData;
 import net.dv8tion.jda.api.utils.messages.MessageEditData;
 import org.jetbrains.annotations.NotNull;
+import org.w3c.dom.css.RGBColor;
 
+import java.awt.*;
 import java.util.*;
+import java.util.List;
 import java.util.function.BooleanSupplier;
 
 public class Bot extends ListenerAdapter implements Emitter {
@@ -116,12 +119,14 @@ public class Bot extends ListenerAdapter implements Emitter {
 
             @Override
             public void noMatches() {
-                textChannel.sendMessage("Could not find " + url).queue();
+//                textChannel.sendMessage("Could not find " + url).queue();
+                event.getHook().sendMessage("Could not find " + url).queue();
             }
 
             @Override
             public void loadFailed(FriendlyException e) {
-                textChannel.sendMessage("Could not play " + url).queue();
+//                textChannel.sendMessage("Could not play " + url).queue();
+                event.getHook().sendMessage("Could not play " + url).queue();
             }
         });
     }
@@ -231,7 +236,7 @@ public class Bot extends ListenerAdapter implements Emitter {
                 break;
             case "exit":
                 stop(musicManager, event.getGuild().getAudioManager());
-                event.getMessage().delete().queue();
+                event.getMessage().delete().submit();
                 break;
         }
     }
@@ -256,7 +261,7 @@ public class Bot extends ListenerAdapter implements Emitter {
 
                 if(this.audioPlayers.get(musicManager.audioPlayer) != null) {
                     if(this.controllerMessages.get(this.audioPlayers.get(musicManager.audioPlayer)) != null) {
-                        this.controllerMessages.get(this.audioPlayers.get(musicManager.audioPlayer)).delete().queue();
+                        this.controllerMessages.get(this.audioPlayers.get(musicManager.audioPlayer)).delete().submit();
                     }
                     this.controllerMessages.remove(this.audioPlayers.get(musicManager.audioPlayer));
 
@@ -283,12 +288,21 @@ public class Bot extends ListenerAdapter implements Emitter {
                 event.getHook().sendMessage("paused").queue();
                 break;
             case "next":
-                next(musicManager);
-                event.getHook().sendMessage("playing next").queue();
+                if(next(musicManager)) {
+                    event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Playing " + musicManager.audioPlayer.getPlayingTrack().getInfo().title).build()).queue();
+//                    event.getHook().sendMessage("Nothing to play!");
+                } else {
+                    event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Nothing to play!").setColor(new Color(150, 0, 30)).build()).queue();
+                }
+//                event.getHook().sendMessage("playing next").queue();
                 break;
             case "prev":
-                prev(musicManager);
-                event.getHook().sendMessage("playing prev").queue();
+                if(prev(musicManager)) {
+                    event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Playing " + musicManager.audioPlayer.getPlayingTrack().getInfo().title).build()).queue();
+//                    event.getHook().sendMessage("playing prev").queue();
+                } else {
+                    event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Nothing to play!").setColor(new Color(150, 0, 30)).build()).queue();
+                }
                 break;
             case "controls":
                 break;
@@ -374,7 +388,7 @@ public class Bot extends ListenerAdapter implements Emitter {
 
     public void showQueue(SlashCommandInteractionEvent event) {
         Scheduler scheduler = getMusicManager(event.getGuild()).scheduler;
-        if(scheduler.getList().isEmpty()) {
+        if(scheduler.getList().isEmpty() || scheduler.getIndex() == scheduler.getList().size()) {
             event.getHook().sendMessageEmbeds(new EmbedBuilder().setTitle("Queue empty!").build()).queue();
             return;
         }
